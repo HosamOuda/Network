@@ -41,7 +41,7 @@ class TftpProcessor(object):
         RRQ = 1
         WRQ = 2
 
-    def __init__(self):
+    def __init__(self,file_name):
         """
         Add and initialize the *internal* fields you need.
         Do NOT change the arguments passed to this function.
@@ -50,6 +50,7 @@ class TftpProcessor(object):
         """
 
         self.packet_buffer = []
+        self.file_name=file_name
         pass
 
     def process_udp_packet(self, packet_data, packet_source):
@@ -74,12 +75,30 @@ class TftpProcessor(object):
         the type of the packet and extract other available
         information.
         """
+        f = open(self.file_name,"r") 
+        my_File=f.read()
+        temp_Arr=[]
+        count=0
+        while count<=len(my_File) : 
+            temp_Arr.append(my_File[count:count+512])
+            count=count+512
+        count=0
+        print("here"+str(len(temp_Arr)))
+        while count<len(temp_Arr):
+            my_String=temp_Arr.pop(count)
+            my_String_in_ASCII=bytes(my_String,"ascii") 
+            my_packet=struct.pack(str(len(my_String_in_ASCII)) + 's',my_String_in_ASCII)
+            print(my_packet)
+            self.packet_buffer.append(my_packet)
+            count=count+1
+        
         pass
 
     def _do_some_logic(self, input_packet):
         """
         Example of a private function that does some logic.
         """
+        
         pass
 
     def get_next_output_packet(self):
@@ -111,6 +130,11 @@ class TftpProcessor(object):
         accept is the file name. Remove this function if you're
         implementing a server.
         """
+        opcode=bytes([1]) 
+        fileName_in_ASCII=bytes(file_path_on_server,"ascii")  
+        mode_in_ASCII=bytes("octet","ascii") 
+        RRQ=struct.pack('IsIsI',opcode,fileName_in_ASCII,0 , mode_in_ASCII,0)
+        return RRQ
         pass
 
     def upload_file(self, file_path_on_server):
@@ -120,7 +144,13 @@ class TftpProcessor(object):
         a file to/from a server, one of the inputs the client
         accept is the file name. Remove this function if you're
         implementing a server.
+        
         """
+        opcode=bytes([2]) 
+        fileName_in_ASCII=bytes(file_path_on_server,"ascii")                
+        mode_in_ASCII=bytes("octet","ascii") 
+        WRQ=struct.pack('Ishsh',opcode,fileName_in_ASCII,bytes([0]) , mode_in_ASCII,bytes([0]))   # lengths 
+        return WRQ
         pass
 
 
@@ -144,18 +174,28 @@ def setup_sockets(address):
 
 
 def do_socket_logic(command_type,file_name,my_Socket,my_Server_adr):
+    tftp_obj= TftpProcessor(file_name)
+
     if command_type=="push":
-        opcode=bytes([2]) 
-        fileName_in_ASCII=bytes(file_name,"ascii")  
-        mode_in_ASCII=bytes("octet","ascii") 
-        WRQ=struct.pack('IsIsI',opcode,fileName_in_ASCII,0 , mode_in_ASCII,0)# lengths 
+        WRQ=tftp_obj.upload_file(file_name)
         my_Socket.sendto(WRQ,my_Server_adr) # mtnsash t7t recieve from 
+        ack, block_num = my_Socket.recvfrom(4)
+        if b'04'==ack:
+            while tftp_obj.has_pending_packets_to_be_sent():
+                my_packet=tftp_obj.get_next_output_packet()
+                my_Socket.sendto(my_packet,my_Server_adr)
+                ack, block_num = my_Socket.recvfrom(4)
+                if b'04'!=ack:
+                    print("error packet is not acknowledged")
+                    break
+                
+        
+
     elif command_type=="pull":
-        opcode=bytes([1]) 
-        fileName_in_ASCII=bytes(file_name,"ascii")  
-        mode_in_ASCII=bytes("octet","ascii") 
-        RRQ=struct.pack('IsIsI',opcode,fileName_in_ASCII,0 , mode_in_ASCII,0)
+        RRQ=tftp_obj.request_file(file_name)
         my_Socket.sendto(RRQ,my_Server_adr)
+        data , block_num , data = my_Socket.recvfrom(512)
+
     pass
 
 
